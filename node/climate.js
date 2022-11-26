@@ -8,7 +8,7 @@ module.exports = function(RED) {
     const boostValue = 'boost';
     const awayValue = 'away';
 
-    RED.nodes.registerType('thingzi-climate', function(config) {
+    RED.nodes.registerType('zone-controller', function(config) {
         RED.nodes.createNode(this, config);
         var node = this;
 
