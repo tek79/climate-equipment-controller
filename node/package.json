@@ -12,7 +12,7 @@
   "node-red" : {
     "version": ">=1.0.0",
     "nodes": {
-        "zone-controller": "climate.js"
+        "zone-controller": "controller.js"
     }
   },
   "engines": {
