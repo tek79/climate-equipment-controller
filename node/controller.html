@@ -8,17 +8,17 @@
             sendStatus: {value: false, required:true},
 
             // Configuration
-            keepAlive: {value: 15, required:true},
-            cycleDelay: {value: 30, required:true},
+            keepAlive: {value: 1, required:true},
+            cycleDelay: {value: 60, required:true},
             boostDuration: {value: 30, required:true},
 
             // Setpoint
-            degrees: {value: 'C', required:true},
-            defaultSetPoint: {value: 20, required:true},
+            degrees: {value: 'F', required:true},
+            defaultSetPoint: {value: 0, required:true},
             tolerance: {value: 0.2, required:true},    
-            minTemp: {value: 5, required:true},
+            minTemp: {value: -25, required:true},
             maxTemp: {value: 25, required:true},
-            tempValid: {value: 60, required:true},
+            tempValid: {value: 1, required:true},
             swapDelay: {value: 60, required:true},
 
             // Outputs
@@ -30,7 +30,7 @@
             // Advertise
             advertise: {value: false, required:true},
             broker: {type:'mqtt-broker', required:false},
-            topic: {value:'thingzi', required:false},
+            topic: {value:'hvac', required:false},
             outputs: {value: 2}
         },
         inputs: 1,
@@ -39,70 +39,9 @@
         outputLabels: ["heating required","cooling required", "status"],
         icon: "climate.png",
         label: function () {
-            return this.name || "climate";
+            return this.name || "controller";
         },
-        paletteLabel: "climate",
-        oneditprepare: function() {
-            $('#node-input-sendStatus').prop("checked", this.sendStatus);
-            $('#node-input-advertise').prop("checked", this.advertise);
-
-            // Show hide setpoint based on type
-            $('#node-input-climateType').on('change', function(data) {
-                $('#node-input-climateType').val() === 'manual' ? $(".setpoint").hide() : $(".setpoint").show();
-            });
-
-            // Change values on degrees switch
-            let degreesFirstTime = true;
-            $('#node-input-degrees').on('change', function(data) {
-                if (!degreesFirstTime) {
-                    if ($('#node-input-degrees').val() === 'C') {
-                        $('#node-input-defaultSetPoint').val(20);
-                        $('#node-input-tolerance').val(0.2);
-                        $('#node-input-minTemp').val(5);
-                        $('#node-input-maxTemp').val(25);
-                    } else {
-                        $('#node-input-defaultSetPoint').val(70);
-                        $('#node-input-tolerance').val(0.3);
-                        $('#node-input-minTemp').val(40);
-                        $('#node-input-maxTemp').val(80);
-                    }
-                }
-                degreesFirstTime = false;
-            });
-
-            if (!$('#node-input-topic').val()) {
-                $('#node-input-topic').val('thingzi')
-            }
-
-            if (!$('#node-input-degrees').val()) {
-                $('#node-input-degrees').val('C');
-            }
-
-            if (!$('#node-input-minTemp').val()) {
-                $('#node-input-minTemp').val('5')
-            }
-
-            if (!$('#node-input-maxTemp').val()) {
-                $('#node-input-maxTemp').val('25')
-            }
-
-            $("#node-input-onPayloadType").val(this.onPayloadType);
-            $("#node-input-onPayload").typedInput({
-                default: 'str',
-                typeField: $("#node-input-onPayloadType"),
-                types: ['str','num','bool','json']
-            });
-
-            $("#node-input-offPayloadType").val(this.offPayloadType);
-            $("#node-input-offPayload").typedInput({
-                default: 'str',
-                typeField: $("#node-input-offPayloadType"),
-                types: ['str','num','bool','json']
-            });
-        },
-        oneditsave: function () {
-            this.outputs = $("#node-input-sendStatus").prop('checked') ? 3 : 2;
-        }
+        paletteLabel: "controller"
     });
 </script>
 
@@ -143,30 +82,9 @@
         <input type="number" id="node-input-cycleDelay" min="5" max="1200" style="width: 60px">
         <label>second(s)</label>
     </div>
-    <div class="form-row">
-        <label title="Duration of climate boost.  This will override any other input settings for the duration of the boost and is designed to overlap scheduling events if needed." for="node-input-boostDuration">
-            <i class="fa fa-rocket"></i> Boost For
-        </label>
-        <input type="number" id="node-input-boostDuration" min="1" max="120" style="width: 60px">
-        <label>minute(s)</label>
-    </div>
 
     <div class="setpoint">
         <h4>Set Point</h4>
-        <div class="form-row">
-            <label title="Measurement scale to use for temperature" for="node-input-degrees"><i class="fa fa-thermometer"></i> Degrees</label>
-            <select id="node-input-degrees" style="width: 120px">
-                <option value="C">Celsius</option>
-                <option value="F">Fahrenheit</option>
-            </select>
-        </div>
-        <div class="form-row">
-            <label title="Default set point of the climate controller.  Can be overridden by 'setpoint' input" for="node-input-defaultSetPoint">
-                <i class="fa fa-dashboard"></i> Default
-            </label>
-            <input type="number" id="node-input-defaultSetPoint" min="0" max="90" step="0.5" style="width: 60px">
-            <label>degrees</label>
-        </div>
         <div class="form-row">
             <label title="Heating tolerance around the set point. Heating or cooling will be disabled within this range to avoid overshooting the set point." for="node-input-tolerance">
                 <i class="fa fa-sliders"></i> Tolerance
@@ -236,7 +154,7 @@
 </script>
 
 <script type="text/html" data-help-name="zone-controller">
-    <p>thingZi climate control</p>
+    <p>Climate Zone Controller</p>
 
     <h3>Inputs</h3>
     <dl class="message-properties">
