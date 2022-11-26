@@ -4,18 +4,18 @@
         color: '#9be483',
         defaults: {
             name: {value:"", required:true}, 
-            climateType: {value: 'heat', required:true},
-            sendStatus: {value: false, required:true},
+            climateType: {value: 'both', required:true},
+            sendStatus: {value: true, required:true},
 
             // Configuration
             keepAlive: {value: 1, required:true},
             cycleDelay: {value: 60, required:true},
-            boostDuration: {value: 30, required:true},
+            offTime: {value: 5, required:true},
 
             // Setpoint
             degrees: {value: 'F', required:true},
             defaultSetPoint: {value: 0, required:true},
-            tolerance: {value: 0.2, required:true},    
+            tolerance: {value: 1.0, required:true},    
             minTemp: {value: 42, required:true},
             maxTemp: {value: 150, required:true},
             tempValid: {value: 1, required:true},
@@ -31,11 +31,11 @@
             advertise: {value: false, required:true},
             broker: {type:'mqtt-broker', required:false},
             topic: {value:'hvac', required:false},
-            outputs: {value: 2}
+            outputs: {value: 3}
         },
         inputs: 1,
-        outputs: 2,
-        inputLabels: "payload (mode), power, setpoint, temp",
+        outputs: 3,
+        inputLabels: "payload (mode), power, dat, temp",
         outputLabels: ["heating required","cooling required", "status"],
         icon: "climate.png",
         label: function () {
@@ -76,6 +76,13 @@
         <label>minute(s)</label>
     </div>
     <div class="form-row">
+        <label title="Duration for which the input temperatures are valid.  Protects against cases where the DAT sensor ot temperature input fails.  If the time expires a safety cut off will remain active until a new temperature reading is received." for="node-input-tempValid">
+            <i class="fa fas fa-hourglass-half"></i> Temp Valid
+        </label>
+        <input type="number" id="node-input-tempValid" min="1" max="120" style="width: 60px">
+        <label>minute(s)</label>
+    </div>
+    <div class="form-row">
         <label title="Minimum time for any heating/cooling cycle. Once the cycle begins it will not change for this duration with subsequent requests queued.  This protects equipment such as boilers, which can be damaged by quick changes.  The * symbol will be shown on the node status when a change is pending that occured too quickly." for="node-input-cycleDelay">
             <i class="fa fa-history"></i> Min Cycle
         </label>
@@ -83,14 +90,21 @@
         <label>second(s)</label>
     </div>
     <div class="form-row">
+        <label title="Minimum off time between cycles. This protects equipment such as boilers, which can be damaged by quick changes.  The * symbol will be shown on the node status when a change is pending that occured too quickly." for="node-input-cycleDelay">
+            <i class="fa fa-history"></i> Min Off
+        </label>
+        <input type="number" id="node-input-offTime" min="5" max="30" style="width: 60px">
+        <label>minutes</label>
+    </div>
+    <div class="form-row">
         <label title="Minimum time to wait before switching from heating to cooling or vice versa.  Without this heating & cooling may compete against each other" for="node-input-swapDelay">
             <i class="fa fa-random"></i> Swap Delay
         </label>
-        <input type="number" id="node-input-swapDelay" min="1" max="120" style="width: 60px">
+        <input type="number" id="node-input-swapDelay" min="10" max="120" style="width: 60px">
         <label>minute(s)</label>
     </div>
     <div class="setpoint">
-        <h4>Set Point</h4>
+        <h4>Tolerance</h4>
         <div class="form-row">
             <label title="Heating tolerance around the set point. Heating or cooling will be disabled within this range to avoid overshooting the set point." for="node-input-tolerance">
                 <i class="fa fa-sliders"></i> Tolerance
@@ -98,7 +112,7 @@
             <input type="number" id="node-input-tolerance" min="0" max="5" step="0.1" style="width: 60px">
             <label>degrees</label>
         </div>
-        <h4>DAT</h4>
+        <h4>DAT Limits</h4>
         <div class="form-row">
             <label title="Minimum discharge air temperature" for="node-input-minTemp">
                 <i class="fa fa-minus-circle"></i> Min Temp
@@ -112,13 +126,6 @@
             </label>
             <input type="number" id="node-input-maxTemp" min="110" max="160" step="1" style="width: 60px">
             <label>degrees</label>
-        </div>
-        <div class="form-row">
-            <label title="Duration for which the last DAT temperature is valid.  Protects against cases where the DAT sensor fails.  If the time expires a safety cut off will remain active until a new temperature reading is received." for="node-input-tempValid">
-                <i class="fa fas fa-hourglass-half"></i> Temp Valid
-            </label>
-            <input type="number" id="node-input-tempValid" min="1" max="120" style="width: 60px">
-            <label>minute(s)</label>
         </div>
     </div>
     <h4>Outputs</h4>
