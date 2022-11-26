@@ -25,6 +25,7 @@ module.exports = function(RED) {
         this.keepAliveMs = parseFloat(config.keepAlive) * 1000 * 60; //< mins to ms
         this.cycleDelayMs = parseFloat(config.cycleDelay) * 1000; //< seconds to ms
         this.boostDurationMins = config.boostDuration;
+	this.offTimeMs = parseFloat(config.offTime) * 1000 * 60; //< minutes to ms
 
         // Set Point
         this.degrees = config.degrees;
@@ -63,17 +64,21 @@ module.exports = function(RED) {
         this.lastChange = null;
         this.lastAction = null;
         this.lastTemp = null;
+        this.lastOffTime = null;
         this.lastHeatTime = null;
         this.lastCoolTime = null;
         this.lastSend = null;
+        this.datTrip = 'expired';
 
         // Handle direct inputs
         this.on("input", function(msg, send, done) {
-            if (msg.hasOwnProperty('payload')) { node.mode.set(msg.payload); }
+
+            //if (msg.hasOwnProperty('payload')) { node.mode.set(msg.payload); }
             if (msg.hasOwnProperty('mode')) { node.mode.set(msg.mode); }
             if (msg.hasOwnProperty('preset')) { node.preset.set(msg.preset); }
             if (msg.hasOwnProperty('setpoint')) { node.setpoint.set(msg.setpoint); }
             if (msg.hasOwnProperty('temp')) { node.temp.set(msg.temp); }
+	    if (msg.hasOwnProperty('dat')) { node.dat.set(msg.dat); }
 
             // Backwards compatibility
             if (msg.hasOwnProperty('boost')) { node.preset.set(isOn(msg.boost) ? boostValue : noneValue); }
@@ -96,9 +101,9 @@ module.exports = function(RED) {
 
         // On mqtt message
         this.onMqttSet = function (type, value) {
-            if (type === 'mode') { node.mode.set(value); }
-            if (type === 'preset') { node.preset.set(value); }
-            if (type === 'setpoint') { node.setpoint.set(value); }
+            //if (type === 'mode') { node.mode.set(value); }
+            //if (type === 'preset') { node.preset.set(value); }
+            //if (type === 'setpoint') { set(value); }
 
             node.update();
         }
@@ -213,7 +218,11 @@ module.exports = function(RED) {
             let msg = { fill: col, shape:'dot' };
 
             if (s.action == 'idle') {
-                msg.text = `${pre}waiting for temp...`;
+                if (node.datTrip == false) {
+                    msg.text = `${pre}waiting for temp...`;
+                } else {
+                    msg.text = `${pre}waiting for dat...`;
+                }
             } else if (node.hasSetpoint) {
                 let set = s.preset === awayValue ? 'away' : s.setpoint;
                 msg.text = `${pre}mode=${mode}, set=${set}, temp=${s.temp}`;
@@ -229,9 +238,46 @@ module.exports = function(RED) {
 
         this.calcSetpointAction = function(s, now) {
 
-            // Waiting for input
-            if (!s.tempTime || now.diff(s.tempTime) >= node.tempValidMs) {
+            // Waiting for DAT input
+            if (!s.datTime || now.diff(s.datTime) >= node.tempValidMs) {
+                node.datTrip = 'expired';
+                //node.updateStatus(s);
                 return 'idle';
+            }
+
+            // DAT limit trip
+            if (node.lastAction === 'heating' && s.dat >= node.maxTemp) {
+                node.datTrip = 'highLimit';
+                return 'idle';
+            } else if (node.lastAction === 'cooling' && s.dat <= node.minTemp) {
+                node.datTrip = 'lowLimit';
+                return 'idle';
+            }
+
+            // DAT expiration reset
+            if (node.datTrip === 'expired') {
+                node.datTrip = now.diff(s.datTime) < node.tempValidMs ? false : 'expired';
+                return 'idle';
+            }
+
+            // DAT limit resets
+            if (node.datTrip === 'highLimit') {
+                node.datTrip = s.dat < 90 ? false : 'highLimit';
+                return 'idle';
+            } else if (node.datTrip === 'lowLimit') {
+                node.datTrip = s.dat > 54 ? false : 'lowLimit';
+                return 'idle';
+            } 
+
+            // Waiting for temperature input
+            if (!s.tempTime || now.diff(s.tempTime) >= node.tempValidMs) {
+                s.tempValid = false;
+                return 'idle';
+            }
+
+            // Temp value is current
+	    if (s.tempTime && now.diff(s.tempTime) < node.tempValidMs) {
+                s.tempValid = true;
             }
 
             // Get Current Capability
@@ -306,7 +352,13 @@ module.exports = function(RED) {
                 setpoint: node.setpoint.get(),
                 temp: node.temp.get(),
                 tempTime: node.temp.time(),
+                tempValid: false,
+                dat: node.dat.get(),
+                datTime: node.dat.time(),
+                datTrip: node.datTrip,
                 action: offValue,
+                heatOutput: false,
+		coolOutput: false,
                 changed: false,
                 pending: false,
                 keepAlive: false
@@ -352,18 +404,29 @@ module.exports = function(RED) {
 	    // Update last heat/cool time
             if (heating || node.lastAction === 'heating') node.lastHeatTime = now;
             if (cooling || node.lastAction === 'cooling') node.lastCoolTime = now;
-		
+            s.heatOutput = (heating || node.lastAction === 'heating') == true ? true : false;
+            s.coolOutput = (cooling || node.lastAction === 'cooling') == true ? true : false;
+
             // Dont allow changes faster than the cycle time to protect climate systems
             if (s.changed) {
                 if (node.lastChange) {
                     let diff = now.diff(node.lastChange);
+                    let diff2 = now.diff(node.lastOffTime);
                     if (diff < node.cycleDelayMs) {
                         s.pending = true;
                         node.updateTimeout = setTimeout(node.update, node.cycleDelayMs - diff);
                         node.updateStatus(s);
                         return;
+                    } else if (diff2 < node.offTimeMs) {
+                        s.pending = true;
+                        node.updateTimeout = setTimeout(node.update, node.offTimeMs - diff2);
+                        node.updateStatus(s);
+                        return;
                     }
                 }
+				
+		// Save lastOffTime on transition to off
+		if ((node.lastAction === 'heating' || node.lastAction === 'cooling') && (s.action === 'off' || s.action === 'idle')) node.lastOffTime = now;
 
                 // Store states for future checks
                 node.lastChange = now;
@@ -458,6 +521,7 @@ module.exports = function(RED) {
 
         // Setpoint
         function setpointStore() {
+                    
             this.get = function() { 
                 let s = node.getValue('setpoint');
                 return s === undefined ? node.defaultSetPoint : s; 
@@ -466,7 +530,6 @@ module.exports = function(RED) {
                 if (s && node.hasSetpoint) { 
                     let t = parseFloat(s);
                     if (!isNaN(t)) {
-                        t = Math.min(Math.max(t, node.minTemp), node.maxTemp);
                         node.setValue('setpoint', t);
                     }
                 }
@@ -494,11 +557,33 @@ module.exports = function(RED) {
             };
         };
 
+        // DAT
+        function datStore() {
+            this.get = function() { 
+                let t = node.getValue('dat');
+                return t;
+            };
+            this.time = function() { 
+                let t = node.getValue('datTime'); 
+                return t ? moment(t) : undefined;
+            };
+            this.set = function(s) {
+                if (s !== undefined && node.hasSetpoint) { 
+                    let t = parseFloat(s);
+                    if (!isNaN(t)) {
+                        node.setValue('dat', t);
+                        node.setValue('datTime', moment().valueOf());
+                    }
+                }
+            };
+        };
+
         // Init Things
         node.mode = new modeStore();
         node.preset = new presetStore();
         node.setpoint = new setpointStore();
         node.temp = new tempStore();
+        node.dat = new datStore();
 
         // If a broker is specified we create an mqtt handler
         if (node.broker && node.topic) {
@@ -507,6 +592,10 @@ module.exports = function(RED) {
 
         // Initial update
         node.setStatus({fill:'grey', shape:'dot', text:'starting...'});
+        node.setValue('dat', null);
+        node.setValue('datTime', null);
+        node.setValue('tempTime', null);
+
         setTimeout(function() { 
             node.starting = false;
             node.update();
