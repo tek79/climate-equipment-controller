@@ -1,18 +1,18 @@
 {
-  "name": "thingzi-logic-climate",
-  "version": "0.6.3",
-  "description": "Climate control via node red",
+  "name": "climate-zone-controller",
+  "version": "0.1.0",
+  "description": "Climate equipment zone controller via node red",
   "bundleDependencies": false,
   "dependencies": {
     "moment": "^2.22.1"
   },
   "keywords": [ "node-red", "climate", "smart home", "temperature", "thermostat", "zone", "hot water", "heat", "cool", "hvac", "mqtt", "homeassistant", "hass" ],
-  "author": "Bryan Black <bry@bryzi.net>",
+  "author": "tek79, Bryan Black <bry@bryzi.net>",
   "license": "MIT",
   "node-red" : {
     "version": ">=1.0.0",
     "nodes": {
-        "climate": "climate.js"
+        "zone-controller": "climate.js"
     }
   },
   "engines": {
@@ -20,6 +20,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/thingzi/thingzi-logic-climate.git"
+    "url": "https://github.com/tek79/climate-zone-controller.git"
   }
 }
