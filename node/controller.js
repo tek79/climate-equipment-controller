@@ -287,8 +287,8 @@ module.exports = function(RED) {
             // Use direction of temperature change to improve calculation and reduce ping pong effect
             //var isTempRising = node.lastTemp ? s.temp - node.lastTemp > 0.01 : false;
             //var isTempFalling = node.lastTemp ? s.temp - node.lastTemp < -0.01 : false;
-	    if ((s.temp - lastTemp) > 0.01) {var isTempRising = true} else {var isTempRising = false};
-            if ((s.temp - lastTemp) < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
+	    if ((s.temp - node.lastTemp) > 0.01) {var isTempRising = true} else {var isTempRising = false};
+            if ((s.temp - node.lastTemp) < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
             
             // Store direction on temperature change only
             if (s.temp != node.lastTemp) {
