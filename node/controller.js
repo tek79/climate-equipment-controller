@@ -285,8 +285,10 @@ module.exports = function(RED) {
             let canCool = node.hasCooling && (s.mode === 'auto' || s.mode === 'cool');
 
             // Use direction of temperature change to improve calculation and reduce ping pong effect
-            var isTempRising = node.lastTemp ? s.temp - node.lastTemp > 0.01 : false;
-            var isTempFalling = node.lastTemp ? s.temp - node.lastTemp < -0.01 : false;
+            //var isTempRising = node.lastTemp ? s.temp - node.lastTemp > 0.01 : false;
+            //var isTempFalling = node.lastTemp ? s.temp - node.lastTemp < -0.01 : false;
+	    if ((msg.payload - lastTemp) > 0.01) {var isTempRising = true} else {var isTempRising = false};
+            if ((msg.payload - lastTemp) < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
             
             // Store direction on temperature change only
             if (s.temp != node.lastTemp) {
