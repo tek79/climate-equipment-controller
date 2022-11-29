@@ -64,7 +64,6 @@ module.exports = function(RED) {
         this.lastChange = null;
         this.lastAction = null;
         this.lastTemp = null;
-        this.lastOffTime = null;
         this.lastHeatTime = null;
         this.lastCoolTime = null;
         this.lastSend = null;
@@ -285,10 +284,8 @@ module.exports = function(RED) {
             let canCool = node.hasCooling && (s.mode === 'auto' || s.mode === 'cool');
 
             // Use direction of temperature change to improve calculation and reduce ping pong effect
-            //var isTempRising = node.lastTemp ? s.temp - node.lastTemp > 0.01 : false;
-            //var isTempFalling = node.lastTemp ? s.temp - node.lastTemp < -0.01 : false;
-	    if ((s.temp - node.lastTemp) > 0.01) {var isTempRising = true} else {var isTempRising = false};
-            if ((s.temp - node.lastTemp) < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
+            if (s.temp - node.lastTemp > 0.01) {var isTempRising = true} else {var isTempRising = false};
+            if (s.temp - node.lastTemp < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
             
             // Store direction on temperature change only
             if (s.temp != node.lastTemp) {
@@ -596,6 +593,7 @@ module.exports = function(RED) {
         node.setStatus({fill:'grey', shape:'dot', text:'starting...'});
         node.setValue('dat', null);
         node.setValue('datTime', null);
+        node.setValue('temp', null);
         node.setValue('tempTime', null);
 
         setTimeout(function() { 
