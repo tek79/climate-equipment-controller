@@ -224,7 +224,7 @@ module.exports = function(RED) {
                 }
             } else if (node.hasSetpoint) {
                 let set = s.preset === awayValue ? 'away' : s.setpoint;
-                msg.text = `${pre}mode=${mode}, set=${set}, temp=${s.temp}`;
+                msg.text = `${pre}mode=${mode}, set=${set-100}, temp=${(s.temp-100).toFixed(1)}`;
             } else {
                 msg.text = `${pre}mode=${mode}`;
             }
@@ -409,7 +409,8 @@ module.exports = function(RED) {
                 if (node.lastChange) {
                     let diff = now.diff(node.lastChange);
                     let diff2 = now.diff(this.lastOffTime);
-                    if (diff2 < node.offTimeMs && node.lastAction === 'off' || node.lastAction === 'idle') {
+
+                    if (diff2 < node.offTimeMs && (node.lastAction === 'off' || node.lastAction === 'idle')) {
                         s.pending = true;
                         //node.updateTimeout = setTimeout(node.update, node.OffTimeMs - diff2);
                         node.updateStatus(s);
