@@ -8,7 +8,7 @@ module.exports = function(RED) {
     const boostValue = 'boost';
     const awayValue = 'away';
 
-    RED.nodes.registerType('thingzi-climate', function(config) {
+    RED.nodes.registerType('zone-controller', function(config) {
         RED.nodes.createNode(this, config);
         var node = this;
 
@@ -25,10 +25,11 @@ module.exports = function(RED) {
         this.keepAliveMs = parseFloat(config.keepAlive) * 1000 * 60; //< mins to ms
         this.cycleDelayMs = parseFloat(config.cycleDelay) * 1000; //< seconds to ms
         this.boostDurationMins = config.boostDuration;
+	this.offTimeMs = parseFloat(config.offTime) * 1000 * 60; //< minutes to ms
 
         // Set Point
         this.degrees = config.degrees;
-        this.defaultSetPoint = parseFloat(config.defaultSetPoint);
+        this.defaultSetPoint = 100;
         this.tolerance = parseFloat(config.tolerance);
         this.minTemp = parseFloat(config.minTemp);
         this.maxTemp = parseFloat(config.maxTemp);
@@ -66,14 +67,17 @@ module.exports = function(RED) {
         this.lastHeatTime = null;
         this.lastCoolTime = null;
         this.lastSend = null;
+        this.datTrip = 'expired';
 
         // Handle direct inputs
         this.on("input", function(msg, send, done) {
-            if (msg.hasOwnProperty('payload')) { node.mode.set(msg.payload); }
+
+            //if (msg.hasOwnProperty('payload')) { node.mode.set(msg.payload); }
             if (msg.hasOwnProperty('mode')) { node.mode.set(msg.mode); }
             if (msg.hasOwnProperty('preset')) { node.preset.set(msg.preset); }
-            if (msg.hasOwnProperty('setpoint')) { node.setpoint.set(msg.setpoint); }
+            //if (msg.hasOwnProperty('setpoint')) { node.setpoint.set(msg.setpoint); }
             if (msg.hasOwnProperty('temp')) { node.temp.set(msg.temp); }
+	    if (msg.hasOwnProperty('dat')) { node.dat.set(msg.dat); }
 
             // Backwards compatibility
             if (msg.hasOwnProperty('boost')) { node.preset.set(isOn(msg.boost) ? boostValue : noneValue); }
@@ -96,9 +100,9 @@ module.exports = function(RED) {
 
         // On mqtt message
         this.onMqttSet = function (type, value) {
-            if (type === 'mode') { node.mode.set(value); }
-            if (type === 'preset') { node.preset.set(value); }
-            if (type === 'setpoint') { node.setpoint.set(value); }
+            //if (type === 'mode') { node.mode.set(value); }
+            //if (type === 'preset') { node.preset.set(value); }
+            //if (type === 'setpoint') { node.setpoint.set(value); }
 
             node.update();
         }
@@ -213,10 +217,14 @@ module.exports = function(RED) {
             let msg = { fill: col, shape:'dot' };
 
             if (s.action == 'idle') {
-                msg.text = `${pre}waiting for temp...`;
+                if (node.datTrip == false) {
+                    msg.text = `${pre}waiting for temp...`;
+                } else {
+                    msg.text = `${pre}waiting for dat...`;
+                }
             } else if (node.hasSetpoint) {
                 let set = s.preset === awayValue ? 'away' : s.setpoint;
-                msg.text = `${pre}mode=${mode}, set=${set}, temp=${s.temp}`;
+                msg.text = `${pre}mode=${mode}, set=${set-100}, temp=${(s.temp-100).toFixed(1)}`;
             } else {
                 msg.text = `${pre}mode=${mode}`;
             }
@@ -229,9 +237,46 @@ module.exports = function(RED) {
 
         this.calcSetpointAction = function(s, now) {
 
-            // Waiting for input
-            if (!s.tempTime || now.diff(s.tempTime) >= node.tempValidMs) {
+            // Waiting for DAT input
+            if (!s.datTime || now.diff(s.datTime) >= node.tempValidMs) {
+                node.datTrip = 'expired';
+                //node.updateStatus(s);
                 return 'idle';
+            }
+
+            // DAT limit trip
+            if (node.lastAction === 'heating' && s.dat >= node.maxTemp) {
+                node.datTrip = 'highLimit';
+                return 'idle';
+            } else if (node.lastAction === 'cooling' && s.dat <= node.minTemp) {
+                node.datTrip = 'lowLimit';
+                return 'idle';
+            }
+
+            // DAT expiration reset
+            if (node.datTrip === 'expired') {
+                node.datTrip = now.diff(s.datTime) < node.tempValidMs ? false : 'expired';
+                return 'idle';
+            }
+
+            // DAT limit resets
+            if (node.datTrip === 'highLimit') {
+                node.datTrip = s.dat < 90 ? false : 'highLimit';
+                return 'idle';
+            } else if (node.datTrip === 'lowLimit') {
+                node.datTrip = s.dat > 54 ? false : 'lowLimit';
+                return 'idle';
+            } 
+
+            // Waiting for temperature input
+            if (!s.tempTime || now.diff(s.tempTime) >= node.tempValidMs) {
+                s.tempValid = false;
+                return 'idle';
+            }
+
+            // Temp value is current
+	    if (s.tempTime && now.diff(s.tempTime) < node.tempValidMs) {
+                s.tempValid = true;
             }
 
             // Get Current Capability
@@ -239,19 +284,22 @@ module.exports = function(RED) {
             let canCool = node.hasCooling && (s.mode === 'auto' || s.mode === 'cool');
 
             // Use direction of temperature change to improve calculation and reduce ping pong effect
-            var isTempRising = node.lastTemp ? s.temp - node.lastTemp > 0.01 : false;
-            var isTempFalling = node.lastTemp ? s.temp - node.lastTemp < -0.01 : false;
+            if (s.temp - node.lastTemp > 0.01) {var isTempRising = true} else {var isTempRising = false};
+            if (s.temp - node.lastTemp < -0.01) {var isTempFalling = true} else {var isTempFalling = false};
             
-			// Store direction on temperature change only
+            // Store direction on temperature change only
             if (s.temp != node.lastTemp) {
+                node.lastDirection = null;
+                if (node.lastAction === 'heating') isTempFalling = false;
+                if (node.lastAction === 'cooling') isTempRising = false;
                 if (isTempFalling) node.lastDirection = 'falling';
                 if (isTempRising) node.lastDirection = 'rising';
             }
 
             // If temperature is neither falling or rising, use last direction to calculate setpoint
             if (s.temp == node.lastTemp) {
-                isTempFalling = node.lastDirection == 'falling' ? true : false;
-                isTempRising = node.lastDirection == 'rising' ? true : false;
+                isTempFalling = node.lastDirection === 'falling' ? true : false;
+                isTempRising = node.lastDirection === 'rising' ? true : false;
             }
 
             let heatPoint = isTempFalling ? s.setpoint - node.tolerance + 0.1 : s.setpoint;
@@ -303,7 +351,13 @@ module.exports = function(RED) {
                 setpoint: node.setpoint.get(),
                 temp: node.temp.get(),
                 tempTime: node.temp.time(),
+                tempValid: false,
+                dat: node.dat.get(),
+                datTime: node.dat.time(),
+                datTrip: node.datTrip,
                 action: offValue,
+                heatOutput: node.heatOutput || false,
+                coolOutput: node.coolOutput || false,
                 changed: false,
                 pending: false,
                 keepAlive: false
@@ -349,18 +403,28 @@ module.exports = function(RED) {
 	    // Update last heat/cool time
             if (heating || node.lastAction === 'heating') node.lastHeatTime = now;
             if (cooling || node.lastAction === 'cooling') node.lastCoolTime = now;
-		
+
             // Dont allow changes faster than the cycle time to protect climate systems
             if (s.changed) {
                 if (node.lastChange) {
                     let diff = now.diff(node.lastChange);
-                    if (diff < node.cycleDelayMs) {
+                    let diff2 = now.diff(this.lastOffTime);
+
+                    if (diff2 < node.offTimeMs && (node.lastAction === 'off' || node.lastAction === 'idle')) {
                         s.pending = true;
-                        node.updateTimeout = setTimeout(node.update, node.cycleDelayMs - diff);
+                        //node.updateTimeout = setTimeout(node.update, node.OffTimeMs - diff2);
+                        node.updateStatus(s);
+                        return;
+                    } else if (diff < node.cycleDelayMs) {
+                        s.pending = true;
+                        //node.updateTimeout = setTimeout(node.update, node.cycleDelayMs - diff);
                         node.updateStatus(s);
                         return;
                     }
                 }
+				
+		// Save lastOffTime on transition to off
+		if ((node.lastAction === 'heating' || node.lastAction === 'cooling') && (s.action === 'off' || s.action === 'idle')) this.lastOffTime = now;
 
                 // Store states for future checks
                 node.lastChange = now;
@@ -375,6 +439,12 @@ module.exports = function(RED) {
                     { topic: this.sendTopic, payload: node.getOutput(heating) }, 
                     { topic: this.sendTopic, payload: node.getOutput(cooling) } 
                 ]);
+
+            // Update status outputs
+            s.heatOutput = node.getOutput(heating) === node.onPayload ? true : false;
+            s.coolOutput = node.getOutput(cooling) === node.onPayload ? true : false;
+            node.heatOutput = s.heatOutput;
+            node.coolOutput = s.coolOutput;
             }
 
             // Update status
@@ -455,15 +525,16 @@ module.exports = function(RED) {
 
         // Setpoint
         function setpointStore() {
+                    
             this.get = function() { 
-                let s = node.getValue('setpoint');
-                return s === undefined ? node.defaultSetPoint : s; 
+                //let s = node.getValue('setpoint');
+                //return s === undefined ? node.defaultSetPoint : s; 
+                return node.defaultSetPoint;
             };
             this.set = function(s) {
                 if (s && node.hasSetpoint) { 
                     let t = parseFloat(s);
                     if (!isNaN(t)) {
-                        t = Math.min(Math.max(t, node.minTemp), node.maxTemp);
                         node.setValue('setpoint', t);
                     }
                 }
@@ -483,9 +554,32 @@ module.exports = function(RED) {
             this.set = function(s) {
                 if (s !== undefined && node.hasSetpoint) { 
                     let t = parseFloat(s);
+                    // Add offset to temp
+                    t += 100;
                     if (!isNaN(t)) {
                         node.setValue('temp', t);
                         node.setValue('tempTime', moment().valueOf());
+                    }
+                }
+            };
+        };
+
+        // DAT
+        function datStore() {
+            this.get = function() { 
+                let t = node.getValue('dat');
+                return t;
+            };
+            this.time = function() { 
+                let t = node.getValue('datTime'); 
+                return t ? moment(t) : undefined;
+            };
+            this.set = function(s) {
+                if (s !== undefined && node.hasSetpoint) { 
+                    let t = parseFloat(s);
+                    if (!isNaN(t)) {
+                        node.setValue('dat', t);
+                        node.setValue('datTime', moment().valueOf());
                     }
                 }
             };
@@ -496,6 +590,7 @@ module.exports = function(RED) {
         node.preset = new presetStore();
         node.setpoint = new setpointStore();
         node.temp = new tempStore();
+        node.dat = new datStore();
 
         // If a broker is specified we create an mqtt handler
         if (node.broker && node.topic) {
@@ -504,6 +599,11 @@ module.exports = function(RED) {
 
         // Initial update
         node.setStatus({fill:'grey', shape:'dot', text:'starting...'});
+
+        // Start with null temp and dat times
+        node.setValue('datTime', null);
+        node.setValue('tempTime', null);
+
         setTimeout(function() { 
             node.starting = false;
             node.update();
