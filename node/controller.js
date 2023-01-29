@@ -83,6 +83,16 @@ module.exports = function(RED) {
             if (msg.hasOwnProperty('boost')) { node.preset.set(isOn(msg.boost) ? boostValue : noneValue); }
             if (msg.hasOwnProperty('away')) { node.preset.set(isOn(msg.away) ? awayValue : noneValue); }
 
+            // 20230128 - New functions
+            if (msg.hasOwnProperty('status')) {
+                node.temp.set(weightedDifferentialIn(msg.topic, msg.status.differentialTemp, msg.status.weight));
+                this.weightTotal = parseFloat(zoneWeight(msg.topic, msg.status.weight));
+                this.heatTriggerTotal = heatTriggerZones(msg.topic, msg.status.trigger, msg.status.heatOutput);
+                this.heatWeightTotal = activeHeatWeight(msg.topic, msg.status.weight, msg.status.heatOutput);
+                this.coolTriggerTotal = coolTriggerZones(msg.topic, msg.status.trigger, msg.status.coolOutput);
+                this.coolWeightTotal = activeCoolWeight(msg.topic, msg.status.weight, msg.status.coolOutput);
+            }
+
             node.update();
             done();
         });
@@ -100,10 +110,6 @@ module.exports = function(RED) {
 
         // On mqtt message
         this.onMqttSet = function (type, value) {
-            //if (type === 'mode') { node.mode.set(value); }
-            //if (type === 'preset') { node.preset.set(value); }
-            //if (type === 'setpoint') { node.setpoint.set(value); }
-
             node.update();
         }
 
@@ -203,7 +209,8 @@ module.exports = function(RED) {
         this.setStatus = function(msg) {
             node.status(msg);
             if (node.sendStatus) {
-                node.send([ null, null, { topic: this.sendTopic, payload: msg }]);
+                // 20230128 - only send status at keepAlive intervals or changes
+                //node.send([ null, null, { topic: this.sendTopic, payload: msg }]);
             }
         }
 
@@ -227,11 +234,11 @@ module.exports = function(RED) {
                 msg.text = `${pre}mode=${mode}, set=${set-100}, temp=${(s.temp-100).toFixed(1)}`;
             } else {
                 msg.text = `${pre}mode=${mode}`;
-            }
-            
+            }           
             node.status(msg);
             if (node.sendStatus) {
-                node.send([ null, null, { topic: this.sendTopic, payload: msg, status: s }]);
+                // 20230128 - only send status at keepAlive intervals or changes
+                //node.send([ null, null, { topic: this.sendTopic, payload: msg, status: s }]);
             }
         }
 
@@ -360,7 +367,12 @@ module.exports = function(RED) {
                 coolOutput: node.coolOutput || false,
                 changed: false,
                 pending: false,
-                keepAlive: false
+                keepAlive: false,
+                heatTrigger: node.heatTriggerTotal || 0,
+                heatWeight: node.heatWeightTotal || 0,
+                coolTrigger: node.coolTriggerTotal || 0,
+                coolWeight: node.coolWeightTotal || 0,
+                totalWeight: node.weightTotal || 0
             };
 
             // Use default mode for boosting
@@ -408,7 +420,7 @@ module.exports = function(RED) {
             if (s.changed) {
                 if (node.lastChange) {
                     let diff = now.diff(node.lastChange);
-                    let diff2 = now.diff(this.lastOffTime);
+                    let diff2 = now.diff(node.lastOffTime);
 
                     if (diff2 < node.offTimeMs && (node.lastAction === 'off' || node.lastAction === 'idle')) {
                         s.pending = true;
@@ -424,7 +436,7 @@ module.exports = function(RED) {
                 }
 				
 		// Save lastOffTime on transition to off
-		if ((node.lastAction === 'heating' || node.lastAction === 'cooling') && (s.action === 'off' || s.action === 'idle')) this.lastOffTime = now;
+		if ((node.lastAction === 'heating' || node.lastAction === 'cooling') && (s.action === 'off' || s.action === 'idle')) node.lastOffTime = now;
 
                 // Store states for future checks
                 node.lastChange = now;
@@ -440,11 +452,16 @@ module.exports = function(RED) {
                     { topic: this.sendTopic, payload: node.getOutput(cooling) } 
                 ]);
 
-            // Update status outputs
-            s.heatOutput = node.getOutput(heating) === node.onPayload ? true : false;
-            s.coolOutput = node.getOutput(cooling) === node.onPayload ? true : false;
-            node.heatOutput = s.heatOutput;
-            node.coolOutput = s.coolOutput;
+                // Update status outputs
+                s.heatOutput = node.getOutput(heating) === node.onPayload ? true : false;
+                s.coolOutput = node.getOutput(cooling) === node.onPayload ? true : false;
+                node.heatOutput = s.heatOutput;
+                node.coolOutput = s.coolOutput;
+
+		// 20230128 - only send status at keepAlive intervals or changes
+		if (node.sendStatus) {
+		    node.send([ null, null, { topic: this.sendTopic, status: s }]);
+		}
             }
 
             // Update status
@@ -584,6 +601,98 @@ module.exports = function(RED) {
                 }
             };
         };
+
+		// 20230128 Added new functions
+		function zoneWeight(zone, weightValue) {
+			let weightCalc = 0;
+			let weight = node.getValue("weight") || {};
+			weight[(zone)] = (weightValue) || 0;
+			
+			node.setValue("weight", weight);
+			
+			for (var prop in weight) {
+				weightCalc += weight[prop];
+			}
+			return weightCalc.toFixed(1);
+		}
+
+		function differentialIn(zone, differentialIn) {
+			let differentialCalc = 0;
+			let differential = node.getValue("differential") || {};
+			differential[(zone)] = (differentialIn) || 0;
+			
+			node.setValue("differential", differential);
+			
+			for (var prop in differential) {
+				differentialCalc += differential[prop];
+			}
+			return differentialCalc.toFixed(1);
+		}
+
+		function weightedDifferentialIn(zone, differentialIn, weightValue) {
+			let wDifferentialCalc = 0;
+			let wDifferential = node.getValue("wDifferential") || {};
+			wDifferential[(zone)] = (((differentialIn) || 0) * ((weightValue) || 1));
+
+			node.setValue("wDifferential", wDifferential);
+			
+			for (var prop in wDifferential) {
+				wDifferentialCalc += wDifferential[prop];
+			}
+			return wDifferentialCalc.toFixed(1);
+		}
+
+		function heatTriggerZones(zone, triggerIn, heatIn) {
+			let heatTriggerCalc = 0;
+			let heatTrigger = node.getValue("heatTrigger") || {};
+			heatTrigger[(zone)] = ((triggerIn) == true && (heatIn) == true) ? 1 : 0;
+
+			node.setValue("heatTrigger", heatTrigger);
+
+			for (var prop in heatTrigger) {
+				heatTriggerCalc += heatTrigger[prop];
+			}
+			return heatTriggerCalc;
+		}
+
+		function coolTriggerZones(zone, triggerIn, coolIn) {
+			let coolTriggerCalc = 0;
+			let coolTrigger = node.getValue("coolTrigger") || {};
+			coolTrigger[(zone)] = ((triggerIn) == true && (coolIn) == true) ? 1 : 0;
+
+			node.setValue("coolTrigger", coolTrigger);
+
+			for (var prop in coolTrigger) {
+				coolTriggerCalc += coolTrigger[prop];
+			}
+			return coolTriggerCalc;
+		}
+
+		function activeHeatWeight(zone, weightValue, heatIn) {
+			let activeHeatWeightCalc = 0;
+			let heatWeight = node.getValue("heatWeight") || {};
+			heatWeight[(zone)] = (((weightValue) || 1) * ((heatIn) == true ? 1 : 0));
+
+			node.setValue("heatWeight", heatWeight);
+			
+			for (var prop in heatWeight) {
+				activeHeatWeightCalc += heatWeight[prop];
+			}
+			return activeHeatWeightCalc;
+		}
+
+		function activeCoolWeight(zone, weightValue, coolIn) {
+			let activeCoolWeightCalc = 0;
+			let coolWeight = node.getValue("coolWeight") || {};
+			coolWeight[(zone)] = (((weightValue) || 1) * ((coolIn) == true ? 1 : 0));
+
+			node.setValue("coolWeight", coolWeight);
+			
+			for (var prop in coolWeight) {
+				activeCoolWeightCalc += coolWeight[prop];
+			}
+			return activeCoolWeightCalc;
+		}
 
         // Init Things
         node.mode = new modeStore();
