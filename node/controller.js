@@ -228,9 +228,9 @@ module.exports = function(RED) {
                 }
             } else if (node.hasSetpoint) {
                 let dat = s.dat;
-                msg.text = `${pre}mode=${mode}, dat=${dat}, temp=${(s.temp-100).toFixed(1)}`;
+                msg.text = `${pre}mode: ${mode}, dat: ${dat}, temp: ${(s.temp-100).toFixed(1)}`;
             } else {
-                msg.text = `${pre}mode=${mode}`;
+                msg.text = `${pre}mode: ${mode}`;
             }           
             node.status(msg);
         }
