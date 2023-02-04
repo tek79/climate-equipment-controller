@@ -425,8 +425,8 @@ module.exports = function(RED) {
                             node.lastSend = now;
                             // Send the stored states to the dedicated outputs to prevent them turning off during cycleDelay
                             node.send([ 
-                                { topic: this.sendTopic, payload: node.heatOutput === true ? 'ON' : 'OFF' }, 
-                                { topic: this.sendTopic, payload: node.coolOutput === true ? 'ON' : 'OFF' } 
+                                { topic: this.sendTopic, payload: node.heatOutput === true ? node.onPayload : node.offPayload }, 
+                                { topic: this.sendTopic, payload: node.coolOutput === true ? node.onPayload : node.offPayload } 
                             ]);
                         }
                         return;
